@@ -367,6 +367,64 @@ static void checkCssDensity() {
     require(sizesAt212[4] == sizesAt300[4] && qAbs(sizesAt300[4].width() - 200) <= 1,
             "Percentage image width changed with CSS density");
 }
+// Width and height attributes with a narrower max-width, as in O'Reilly
+// figures. The constraint scales both sizes; otherwise the full height stays,
+// and the taller figure is then squeezed to fit the page.
+static void checkImageProportions() {
+    QImage art(40, 40, QImage::Format_RGB32);
+    art.fill(Qt::red);
+    QByteArray png;
+    QBuffer output(&png);
+    require(output.open(QIODevice::WriteOnly) && art.save(&output, "PNG"), "Cannot encode proportion fixture");
+    const QMap<QString, QByteArray> base{
+        {"mimetype", "application/epub+zip"},
+        {"META-INF/container.xml",
+         "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+        {"book.opf",
+         "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/><item id='i' href='art.png' media-type='image/png'/></manifest><spine><itemref idref='c'/></spine></package>"},
+        {"art.png", png}};
+    const struct {
+        const char *size;
+        double ratio;
+    } cases[]{{"width='1251' height='350'", 1251 / 350.0}, {"width='1236' height='1012'", 1236 / 1012.0}};
+    const int originalPpi = kobalt::readingPpi.load();
+    kobalt::readingPpi.store(300);
+    for (const auto &fixture : cases) {
+        auto data = base;
+        data["c.xhtml"] =
+            QByteArray("<html xmlns='http://www.w3.org/1999/xhtml'><body><div style='text-align:center'><img "
+                       "src='art.png' style='max-width:95%' ") +
+            fixture.size + "/><h6>Caption</h6></div></body></html>";
+        QMap<QString, qint64> lengths;
+        for (auto it = data.cbegin(); it != data.cend(); ++it)
+            lengths[it.key()] = it.value().size();
+        auto resources = std::make_shared<kobalt::ResourceCache>(
+            data.keys(),
+            [data](const QString &name, const kobalt::ResourceCache::Sink &sink, QString *) {
+                const auto bytes = data.value(name);
+                return sink(bytes.constData(), bytes.size());
+            },
+            std::make_shared<std::atomic_bool>(false));
+        kobalt::ReaderModel model(kobalt::test::readerFonts());
+        QString error;
+        const auto settings = kobalt::qt::object(
+            {{"font_pixels", 40}, {"margin_pixels", 0}, {"top_margin_pixels", 0}, {"bottom_margin_pixels", 0}});
+        require(model.openResources(resources, lengths, QSize(800, 1000), settings, &error), qPrintable(error));
+        QRect ink;
+        const auto rendered = model.image(0);
+        for (int y = 0; y < rendered.height(); ++y)
+            for (int x = 0; x < rendered.width(); ++x) {
+                const auto pixel = rendered.pixel(x, y);
+                if (qRed(pixel) > 200 && qGreen(pixel) < 30 && qBlue(pixel) < 30)
+                    ink = ink.united(QRect(x, y, 1, 1));
+            }
+        require(!ink.isEmpty() && ink.width() <= 760 && ink.height() <= 1000,
+                "Proportion fixture image is missing or exceeds its constraints");
+        require(qAbs(double(ink.width()) / ink.height() - fixture.ratio) <= fixture.ratio * 0.02,
+                "Constrained image lost the proportions of its width and height");
+    }
+    kobalt::readingPpi.store(originalPpi);
+}
 static void checkObfuscatedFonts() {
     QFile font(kobalt::test::readerAssets().file("fonts/InstrumentSerif-Regular.ttf"));
     require(font.open(QIODevice::ReadOnly), "open synthetic embedded font fixture");
@@ -494,6 +552,7 @@ int main(int argc, char **argv) {
                 kobalt::normalizedOpticalSize(opticalFixture, 14.6) == 15,
             "Optical size normalization lost defaults or whole-point bounds");
     checkCssDensity();
+    checkImageProportions();
     {
         kobalt::ReaderModel unopened(kobalt::test::readerFonts());
         const kobalt::PositionCodec synthetic{[](const kobalt::ReaderModel &, const QString &, QString *) {

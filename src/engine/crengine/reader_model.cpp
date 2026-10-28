@@ -343,11 +343,11 @@ QVector<ReadingFont> ReaderModel::fontCatalog() {
 void ReaderModel::setDocumentCache(QString directory, QByteArray fingerprint, QByteArray policy, qint64 bytes) {
     cacheDirectory_ = std::move(directory);
     cacheFingerprint_ = std::move(fingerprint);
-    // Parsed pages from older density, image and double-scaled line-height
-    // policies must not survive these renderer changes. The density is fixed by the host
-    // before any model opens and is shared by the main reader and previews.
-    cachePolicy_ = std::move(policy) +
-                   ":css-density-leading-v1:page-layout-v2:line-height-v2:" + QByteArray::number(readingPpi.load());
+    // Parsed pages from older density, image, image-proportion and double-scaled
+    // line-height policies must not survive these renderer changes. The density is fixed
+    // by the host before any model opens and is shared by the main reader and previews.
+    cachePolicy_ = std::move(policy) + ":css-density-leading-v1:page-layout-v2:line-height-v2:image-proportions-v1:" +
+                   QByteArray::number(readingPpi.load());
     cacheBytes_ = bytes;
 }
 QByteArray ReaderModel::documentCachePolicy() const {

@@ -1,0 +1,31 @@
+--- a/crengine/src/lvrend.cpp
++++ b/crengine/src/lvrend.cpp
+@@ -3356,7 +3356,27 @@
+     // (which is different than the first intuitive way at going at it),
+     // confirmed by looking how it's implemented in WeasyPrint, and actually
+     // giving the same results as Firefox.
+-    if ( width >= 0 || height >= 0 ) {
++    if ( width > 0 && height > 0 ) {
++        // Kobalt: publishers commonly give both sizes, often through the
++        // width and height attributes, with a narrower max-width. Browsers
++        // then distort the image unless height is auto. Scale both sizes
++        // together so the given proportions survive each constraint.
++        w = width;
++        h = height;
++        if ( max_width >= 0 && w > max_width ) {
++            h = (int)((lInt64)h * max_width / w);
++            w = max_width;
++        }
++        if ( max_height >= 0 && h > max_height ) {
++            w = (int)((lInt64)w * max_height / h);
++            h = max_height;
++        }
++        if ( w < min_width )
++            w = min_width;
++        if ( h < min_height )
++            h = min_height;
++    }
++    else if ( width >= 0 || height >= 0 ) {
+         // We have at least one of width or height specified
+         // Get width
+         if ( width >= 0 ) { // We have a width
